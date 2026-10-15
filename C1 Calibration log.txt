@@ -1,0 +1,176 @@
+### Calibration table
+| # | Question | My answer before AI | My confidence | AI's answer (short) | AI's stated confidence | How I verified | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1 | In C#, what does `DateTime.Parse("2026-10-10T09:00:00Z")` return: does the time value change, and what is its `Kind`? | return a DateTime and the kind string | 20% | the default DateTime.Parse(string) converts timezone-qualified input to local time and returns DateTimeKind.Local.  | High | Ran the code with `dotnet run` | Correct |
+| 2 | In C#, does `Task.WhenAll` throw as soon as one task fails, or does it wait for all tasks to finish? | it does not throw when a task fails and waits for all to finish | 60% | Task.WhenAll waits for all supplied tasks to complete before its returned task completes, even if one or more tasks fail | Very High | Ran the code with `dotnet run` and timed it |Correct |
+| 3 | In C#, what do `Math.Round(0.5)`, `Math.Round(1.5)`, `Math.Round(2.5)`, `Math.Round(3.5)` return? | 1 , 2 , 3 , 4 | 65 % | 0 , 2 , 2 , 4 By default, Math.Round() uses banker's rounding, also called round to nearest even | Very High | Ran the code with `dotnet run` | Correct |
+| 4 | In C#, can a method have a default parameter like `List<int> items = new List<int>()`, and if so, is the list fresh on every call? | yes it can have a deafult parameter , yse the list is fresh with every call | 80% | No, it does not compile. C# does not allow new List<int>() as the default value of an optional parameter | Very High | Ran `dotnet build` and read the compiler output | Correct |
+| 5 | Is the HTTP `PUT` method idempotent? | Yes it is | 100% | HTTP PUT is idempotent; repeating it has the same effect as doing it once. | Very high (99%) | Quoted the MDN documentation | Correct |
+
+### Evidence
+
+### Q1
+
+Prompt: In C# (.NET), what does DateTime.Parse("2026-10-10T09:00:00Z") return? Does the time value change, and what is the resulting DateTime.Kind?
+
+AI answer: In C#/.NET, DateTime.Parse("2026-10-10T09:00:00Z") interprets the trailing Z as UTC.
+The important distinction is that the resulting clock time and DateTime.Kind can depend on the parsing overload and its options.
+For the default DateTime.Parse(string) overload, the usual behavior is:
+- Time value: 09:00:00 is converted to the machine's local time.
+- DateTime.Kind: DateTimeKind.Local.
+For example, on a machine configured for Egypt's UTC+3 time zone on that date, the parsed result would normally be 2026-10-10 12:00:00, with Kind == Local.
+
+Confidence follow-up (prompt: "How confident are you in this, and what would make it wrong?"): Confidence: High. Microsoft's documentation explicitly specifies that the default DateTime.Parse(string) converts timezone-qualified input to local time and returns DateTimeKind.Local. 
+The main variable is the machine's local time zone. The expected 12:00 result assumes UTC+3; on a UTC machine, the clock time remains 09:00, but Kind is still Local for the default overload.
+Another important distinction: DateTimeStyles.RoundtripKind preserves the UTC designation for a trailing Z, while DateTimeStyles.AdjustToUniversal explicitly requests UTC interpretation/conversion.
+
+Verification:
+
+Command (in a console project, Program.cs, run with `dotnet run`):
+```csharp
+using System;
+
+Console.WriteLine(Environment.Version);
+var d = DateTime.Parse("2026-10-10T09:00:00Z");
+Console.WriteLine(d.ToString("o"));
+Console.WriteLine(d.Kind);
+Console.WriteLine(TimeZoneInfo.Local.Id);
+```
+Output:
+```
+9.0.9
+2026-10-10T09:00:00.0000000+00:00
+Local
+UTC
+```
+
+### Q2
+
+Prompt: In C# (.NET), does Task.WhenAll throw as soon as one of the tasks fails, or does it wait for all the tasks to complete first?
+
+AI answer: Task.WhenAll waits for all supplied tasks to complete before its returned task completes, even if one or more tasks fail. It does not cancel the remaining tasks automatically.
+
+Example
+Task task1 = Task.Delay(1000);
+Task task2 = Task.FromException(new Exception("Something failed"));
+Task task3 = Task.Delay(5000);
+try{    await Task.WhenAll(task1, task2, task3);}
+catch (Exception ex){Console.WriteLine(ex.Message);}
+Here, task2 fails immediately, but await Task.WhenAll(...) doesn't throw to the caller until task1, task2, and task3 have all completed. Assuming no scheduling delays, the exception is observed after approximately 5 seconds, not immediately.
+
+Confidence follow-up (prompt: "How confident are you in this, and what would make it wrong?"): Confidence: Very high. This is the documented behavior of Task.WhenAll in .NET (https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.whenall?view=netstandard-2.1)
+
+Verification:
+
+Command (in a console project, Program.cs, run with `dotnet run`):
+```csharp
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
+
+var sw = Stopwatch.StartNew();
+var slow = Task.Delay(3000);
+var fail = Task.Run(async () =>
+{
+    await Task.Delay(500);
+    throw new InvalidOperationException("fail");
+});
+
+try
+{
+    await Task.WhenAll(slow, fail);
+}
+catch (Exception e)
+{
+    Console.WriteLine($"caught after {sw.ElapsedMilliseconds} ms: {e.Message}");
+}
+```
+Output:
+```
+caught after 3000 ms: fail
+```
+
+### Q3
+
+Prompt: In C# (.NET), what do Math.Round(0.5), Math.Round(1.5), Math.Round(2.5) and Math.Round(3.5) return? Give all four values and explain why.
+
+AI answer: By default, Math.Round() uses banker's rounding, also called round to nearest even (MidpointRounding.ToEven). When a value lies exactly halfway between two integers, it chooses the even integer.
+0.5 is between 0 and 1 → choose 0 (even).
+1.5 is between 1 and 2 → choose 2 (even).
+2.5 is between 2 and 3 → choose 2 (even).
+3.5 is between 3 and 4 → choose 4 (even).
+If you want conventional rounding instead
+Use MidpointRounding.AwayFromZero:
+Math.Round(0.5, MidpointRounding.AwayFromZero); // 1
+Math.Round(1.5, MidpointRounding.AwayFromZero); // 2
+Math.Round(2.5, MidpointRounding.AwayFromZero); // 3
+Math.Round(3.5, MidpointRounding.AwayFromZero); // 4
+
+Confidence follow-up (prompt: "How confident are you in this, and what would make it wrong?"): Very high. These are the documented results for the default Math.Round(double) overload.
+The answer would differ if you specified a different MidpointRounding mode, such as AwayFromZero. Floating-point representation can also affect calculations that produce a value intended to be .5 but that is actually slightly above or below the midpoint. For the four literal values in your question, the results shown above are correct.
+
+Verification:
+
+Command (in a console project, Program.cs, run with `dotnet run`):
+```csharp
+using System;
+
+Console.WriteLine($"{Math.Round(0.5)} {Math.Round(1.5)} {Math.Round(2.5)} {Math.Round(3.5)}");
+```
+Output:
+```
+0 2 2 4
+```
+
+### Q4
+
+Prompt: In C#, can I write `static List<int> Add(int x, List<int> items = new List<int>())`? If it compiles, is the list fresh on every call? If not, what error do I get?
+
+AI answer: No, it does not compile. C# does not allow new List<int>() as the default value of an optional parameter because a reference-type default parameter must be null (or a compile-time constant where permitted).
+You get compiler error CS1736: Default parameter value for 'items' must be a compile-time constant.
+Correct approach: Use null as the default and create a new list inside the method:
+
+Confidence follow-up (prompt: "How confident are you in this, and what would make it wrong?"): Confidence: Very high. This is standard C# optional-parameter behavior.
+The important distinction is that new List<int>() is a runtime object-creation expression, not a permitted optional-parameter default. If you pass an existing list explicitly, the method uses that list rather than creating a new one.
+
+Verification:
+
+Command (in a separate, new console project, Program.cs, run with `dotnet build`):
+```csharp
+using System.Collections.Generic;
+
+static List<int> Add(int x, List<int> items = new List<int>())
+{
+    items.Add(x);
+    return items;
+}
+
+System.Console.WriteLine(string.Join(",", Add(1)));
+System.Console.WriteLine(string.Join(",", Add(2)));
+```
+Output:
+```
+error CS1736: Default parameter value for 'items' must be a compile-time constant
+The build failed. Fix the build errors and run again.
+```
+
+### Q5
+
+Prompt: Is the HTTP PUT method idempotent? What does idempotent mean here?
+
+AI answer: Yes, HTTP PUT is idempotent according to the HTTP specification. 
+What does idempotent mean? An operation is idempotent if repeating the same operation multiple times has the same intended effect as performing it once.
+
+Confidence follow-up (prompt: "How confident are you in this"): Very high (99%). HTTP PUT is defined as an idempotent method in the HTTP semantics specification (RFC 9110).
+
+Verification:
+
+Link: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/PUT
+
+Quoted sentence: "The difference between PUT and POST is that PUT is idempotent: calling it once is no different from calling it several times successively (there are no side effects)."
+
+### Reflection (max 200 words)
+
+Overconfident instance: In Q4, I was 80% sure a C# method could have a default parameter like new List<int>() that gives a fresh list on every call, but dotnet build failed with error CS1736 because default values must be compile-time constants. I had carried over my assumption from how default values look in other languages without checking. I was also wrong in Q3: I was 65% sure Math.Round(2.5) returns 3, but .NET returned 2 because it uses banker’s rounding by default.
+
+Rule: Before I rely on any language feature I haven’t used in our squad’s .NET version, I write and run a 5-line test, and I paste the command and its output into the pull request. I do this even when I feel more than 70% sure.
